@@ -1,0 +1,41 @@
+import sys
+import time
+
+config(channel= 'fifo', clock= 'Lamport')
+
+class P(process):
+    def setup(s:set, nrequests:int, logps:Log):
+        pass  # s is set of all other processes
+
+    def mutex(task):
+        -- request
+        c = logical_clock()
+        send(('request', c, self), to= s)
+        await(each(received(('request', c2, p)),
+                   has= received(('release', c2, p)) or (c, self) < (c2, p))
+              and each(p in s, has= received(('ack', c, p))))
+        -- critical_section
+        send(('incs', logical_clock(), self), to=logps)
+        task()
+        send(('outcs', logical_clock(), self), to=logps)
+        -- release
+        send(('release', c, self), to= s)
+
+    def receive(msg= ('request', c, p)):
+        send(('ack', c, self), to= p)
+
+    def run():
+        start_cpu_time = time.time()
+        def task():
+            pass
+            #output('in cs')
+            #output('releasing cs')
+        for i in range(nrequests):
+            mutex(task)
+
+        send(('done', self), to= parent())
+        end_cpu_time = time.time()
+        total_cpu_time = end_cpu_time - start_cpu_time
+        send(('cputime', total_cpu_time, self), to=logps)
+        await(received(('done',), from_=parent()))
+        #output('terminating')

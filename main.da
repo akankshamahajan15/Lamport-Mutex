@@ -1,0 +1,137 @@
+import sys
+import random
+import time
+config(channel is fifo, clock is lamport)
+modifiedLamport = import_da('my_mutex')
+specAlgo = import_da('spec')
+origLamport = import_da('orig')
+
+class Log(process):
+    def setup(counter:int):  # s is set of all other processes
+        self.counter = 0
+        self.val = True
+        self.start_cputime = 0
+        self.end_cputime = 0
+        self.total_cputime = 0
+        self.start_elapse = 0
+        self.end_elapse = 0
+        self.avgtotaltime = 0
+        self.issafetyviolated = False
+
+    def receive(msg= ('incs', _, p)):
+        counter = counter+1
+        #output (p, " is in CS")
+        if counter >= 2:
+            issafetyviolated = True
+
+    def receive (msg= ('outcs', _, p)):
+        #output (p, " is out of CS")
+        counter = counter-1
+
+    def receive (msg= ('updatetime', rep, x)):
+        avgtotaltime = total_cputime/rep
+        print('Average Running time : ', avgtotaltime)
+        avgtotaltime = 0
+        total_cputime = 0
+        send(('time_done', self), to=parent())
+
+
+    def run():
+        -- abcd
+        #-- outcs
+        await(received(('done',), from_= parent()))
+
+        output("Log terminating")
+        send(('done', self), to= parent())
+
+    def receive (msg = ('cputime', val, p)):
+        total_cputime = total_cputime + val
+        #print('Total time taken by process ', p, " : ", val)
+
+    def receive(msg=('checksafety', val, p)):
+        if issafetyviolated:
+            print ("Safety Violated as more than one processes was in the critical section")
+        else:
+            print("No Safety Violated")
+        issafetyviolated = False
+        send(('safety_done', self), to=parent())
+
+
+def main():
+    #-python.exe -m da main.da p r n d a
+    nprocs = int(sys.argv[1]) if len(sys.argv) > 1 else 10
+    nrequests = int(sys.argv[2]) if len(sys.argv) > 2 else 1
+    ncrun =  int(sys.argv[3])
+    nparameter = int(sys.argv[4])
+    nrep = int(sys.argv[4])
+    
+    log_ps = new(Log)
+    setup(log_ps, (1,))
+    start(log_ps)
+
+    AlgoList = [modifiedLamport, specAlgo, origLamport]
+    print ("\n------------CORRECTNESS CHECKING----------------")
+    #case correctness
+    for x in AlgoList:
+        print("\n")
+        print (x)
+        for i in range(ncrun):
+            print ("Run : ", i)
+
+            mprocs = random.randint(1,nprocs)
+            mrequests = random.randint(1, nrequests)
+            ps = new(x.P, num=mprocs)
+            for p in ps:
+                setup(p, (ps - {p}, mrequests, log_ps))
+            start(ps)
+            send(('checksafety', logical_clock(), self), to=log_ps)
+            await(received(('safety_done', log_ps), from_=log_ps))
+            await(each(p in ps, has=received(('done', p))))
+            send(('done',), to=ps)
+    print("\n------------CORRECTNESS CHECKING-------------------")
+
+    print("\n")
+    print("\n------------PERFORMANCE CHECKING--------------------")
+    print("For processes : ", nprocs, " d : ", nparameter, " requests : ", nrequests, " repitions : ", nrep)
+    diff = int(nrequests / nparameter)
+    mrequests = 0
+    print("1. Evenly spaced over requests-------------------")
+    print ("\n Stats for modifiedLamport, specAlgo, origLamport as follows : \n")
+    for x in AlgoList:
+        for i in range(nparameter):
+            mrequests = mrequests + diff
+            for j in range(nrep):
+                ps = new(x.P, num=nprocs)
+                for p in ps:
+                    setup(p, (ps-{p}, mrequests, log_ps))
+                start(ps)
+                await(each(p in ps, has=received(('done', p))))
+                send(('done',), to=ps)
+        send(('updatetime', nrep, p), to=log_ps)
+        await(received(('time_done',log_ps), from_= log_ps))
+
+    print("\n2. Evenly spaced over processes---------")
+    print ("\n Stats for modifiedLamport, specAlgo, origLamport as follows : \n")
+
+    for x in AlgoList:
+        # case 3
+        diff1 = int(nprocs/nparameter)
+        mprocs = 0
+        for i in range(nparameter):
+
+            mprocs = mprocs + diff1
+            for j in range(nrep):
+                ps1 = new(x.P, num=mprocs)
+                for p in ps1:
+                    setup(p, (ps1-{p}, nrequests, log_ps))
+                start(ps1)
+                await(each(p in ps1, has=received(('done', p))))
+                send(('done',), to=ps1)
+        send(('updatetime', nrep, p), to=log_ps)
+        await(received(('time_done', log_ps), from_=log_ps))
+
+        print ("\n")
+
+    send(('done',), to= log_ps)
+    await(received(('done',log_ps), from_= log_ps))
+

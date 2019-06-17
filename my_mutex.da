@@ -1,0 +1,73 @@
+import sys
+import time
+config(channel is fifo, clock is lamport)  
+
+class P(process):
+    def setup(s:set, nrequests:int, logps:Log):  # s is set of all other processes
+        self.q = set()
+        self.min_t = ('request', 0, 0)
+
+    def sendr():
+        -- request
+        c = logical_clock()
+        #output(logical_clock(), " Request sent at time ", c)
+        send(('request', c, self), to= s)
+        q.add(('request', c, self))
+
+    def canEnterCS():
+        min = sys.maxsize
+        for(tag, c, p) in q:
+            if p == self and min > c:
+                min_t = ("request", c, p)
+                min = c
+        await(each(('request', c2, p) in q,
+                   has= (c2, p)==(min, self) or (min, self) < (c2, p)) and
+              each(p in s, has= some(received(('ack', c2, _p)), has= c2 > min)))
+
+    def mutex(task):
+        task()
+
+    def releaser ():
+        -- release
+        p = self
+
+        for x in setof(('request', c, self), ('request', c, self) in q):
+            q.remove(x)
+            break
+        #output("critical section request ", min_t[1])
+        send(('release', logical_clock(), self), to= s)
+
+    def receive(msg= ('request', c2, p)):
+        q.add(('request', c2, p))
+        #output (logical_clock(), "sent ack to process", p)
+        send(('ack', logical_clock(), self), to= p)
+
+    def receive(msg= ('release', _, p)):
+
+        for x in setof(('request', c, p), ('request', c, _p) in q):
+            q.remove(x)
+            break
+
+    def run():
+        start_cpu_time = time.time()
+        def task():
+            pass
+            #output ("in CS", min_t)
+            
+        for i in range(nrequests):
+            sendr()
+
+        for i in range(nrequests):
+            canEnterCS()
+            send(('incs', logical_clock(), self), to= logps)
+            mutex (task)
+            send(('outcs', logical_clock(), self), to= logps)
+            releaser()
+
+        send(('done', self), to= parent())
+        end_cpu_time = time.time()
+        total_cpu_time = end_cpu_time - start_cpu_time
+        #output ("total_cpu_time of a process", self, total_cpu_time)
+        send (('cputime', total_cpu_time, self), to= logps)
+        await(received(('done',), from_=parent()))
+        #output('terminating')
